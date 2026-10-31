@@ -9,11 +9,23 @@ import xml.etree.ElementTree as ET
 import json
 import yaml
 
+class InputFileError(Exception):
+    """An error with an input file."""
+    pass
+
 def main():
     """Check network devices and generate an audit report."""
-    tree = ET.parse(sys.argv[1])
+    if len(sys.argv) != 3:
+        print("usage: python pa2.py DEVICES.xml POLICY.yaml")
+        sys.exit(2)
+
+    try:
+        tree = ET.parse(sys.argv[1])
+    except (OSError, ET.ParseError) as error:
+        raise InputFileError(f"{sys.argv[1]}: {error}")
+
     root = tree.getroot()
-    
+
     with open(sys.argv[2], "r", encoding="utf-8") as file:
         policy = yaml.safe_load(file)
 
@@ -48,6 +60,25 @@ def main():
             })
             device_compliant = False
 
+        if "min_os" in policy and role in policy["min_os"]:
+            found = device.get("os")
+            required = policy["min_os"][role]
+
+            current = [int(x) for x in found.split(".")]
+            minimum = [int(x) for x in required.split(".")]
+
+            length = max(len(current), len(minimum))
+            current += [0] * (length - len(current))
+            minimum += [0] * (length - len(minimum))
+
+            if current < minimum:
+                violations.append({
+                    "device": device_id,
+                    "type": "os_outdated",
+                    "found": found,
+                    "required": required
+                })
+                device_compliant = False
 
         owner = device.find("owner")
 
@@ -111,4 +142,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+
+    except InputFileError as error:
+        print(f"Error: {error}")
+        sys.exit(1)
